@@ -32,13 +32,22 @@ def custom_score(game, player):
         one of the player objects `game.__player_1__` or `game.__player_2__`.)
 
     Returns
-    -------
+    ----------
     float
         The heuristic value of the current game state to the specified player.
     """
+    if game.is_loser(player):
+        return float("-inf")
 
-    # TODO: finish this function!
-    raise NotImplementedError
+    if game.is_winner(player):
+        return float("inf")
+
+    own_moves = len(game.get_legal_moves(player))
+    opp_moves = len(game.get_legal_moves(game.get_opponent(player)))
+    if len(game.get_blank_spaces()) > game.width * game.height * 2 / 3:
+        return float(own_moves - opp_moves)
+    else:
+        return float(own_moves - opp_moves * 2)
 
 
 class CustomPlayer:
@@ -110,7 +119,7 @@ class CustomPlayer:
             the game.
 
         Returns
-        -------
+        ----------
         (int, int)
             Board coordinates corresponding to a legal move; may return
             (-1, -1) if there are no available legal moves.
@@ -118,25 +127,53 @@ class CustomPlayer:
 
         self.time_left = time_left
 
-        # TODO: finish this function!
-
         # Perform any required initializations, including selecting an initial
         # move from the game board (i.e., an opening book), or returning
         # immediately if there are no legal moves
+        return_tuple = (-1, -1)
 
+        if len(legal_moves) == 0:
+            return return_tuple
+
+        maximizing_player = self.isMaximizingPlayer(game)
+        score = float("-inf") if maximizing_player else float("inf")
         try:
             # The search method call (alpha beta or minimax) should happen in
             # here in order to avoid timeout. The try/except block will
             # automatically catch the exception raised by the search method
             # when the timer gets close to expiring
-            pass
+            if self.iterative:
+                # We need to set max level of depth for iterative deepening.
+                # When branching factor is 5~6, depth level of 10 is large enough for iterative deepening
+                for depth in range(1, 11):
+                    if self.time_left() < self.TIMER_THRESHOLD:
+                        return return_tuple
+
+                    tmp_score, tmp_tuple = None, None
+                    if self.method == "minimax":
+                        tmp_score, tmp_tuple = self.minimax(game, depth)
+                    else:
+                        tmp_score, tmp_tuple = self.alphabeta(game, depth)
+
+                    if (maximizing_player and tmp_score > score) or (not maximizing_player and tmp_score < score):
+                        score = tmp_score
+                        return_tuple = tmp_tuple
+
+            else:
+                if self.method == "minimax":
+                    _, return_tuple = self.minimax(game, self.search_depth)
+                else:
+                    _, return_tuple = self.alphabeta(game, self.search_depth)
 
         except Timeout:
             # Handle any actions required at timeout, if necessary
             pass
 
         # Return the best move from the last completed search iteration
-        raise NotImplementedError
+        return return_tuple
+
+    def isMaximizingPlayer(self, game):
+        return game.active_player == game.__player_1__
 
     def minimax(self, game, depth, maximizing_player=True):
         """Implement the minimax search algorithm as described in the lectures.
@@ -156,7 +193,7 @@ class CustomPlayer:
             maximizing layer (True) or a minimizing layer (False)
 
         Returns
-        -------
+        ----------
         float
             The score for the current search branch
 
@@ -172,8 +209,35 @@ class CustomPlayer:
         if self.time_left() < self.TIMER_THRESHOLD:
             raise Timeout()
 
-        # TODO: finish this function!
-        raise NotImplementedError
+        return_score = float("-inf") if maximizing_player else float("inf")
+        return_tuple = (-1, -1)
+
+        stack = []
+        legal_moves = game.get_legal_moves(game.active_player)
+        for legal_move in legal_moves:
+            # stack will hold wrapper objects that look like:
+            # (current_game_state, move_to_apply, root_move_to_return, current_depth_level)
+            stack.append((game, legal_move, legal_move, 1))
+
+        while (len(stack) > 0):
+            obj = stack.pop()
+            new_game = obj[0].forecast_move(obj[1])
+
+            if obj[3] < depth:
+                # Let's go into deep one level deeper
+                for legal_move in new_game.get_legal_moves(new_game.active_player):
+                    stack.append((new_game, legal_move, obj[2], obj[3] + 1))
+            else:
+                try:
+                    score = self.score(new_game, game.active_player)
+
+                    if (maximizing_player and score > return_score) or (not maximizing_player and score < return_score):
+                        return_score = score
+                        return_tuple = obj[2]
+                except Exception:
+                    break
+
+        return return_score, return_tuple
 
     def alphabeta(self, game, depth, alpha=float("-inf"), beta=float("inf"), maximizing_player=True):
         """Implement minimax search with alpha-beta pruning as described in the
@@ -200,21 +264,34 @@ class CustomPlayer:
             maximizing layer (True) or a minimizing layer (False)
 
         Returns
-        -------
+        ----------
         float
             The score for the current search branch
 
         tuple(int, int)
             The best move for the current branch; (-1, -1) for no legal moves
-
-        Notes
-        -----
-            (1) You MUST use the `self.score()` method for board evaluation
-                to pass the project unit tests; you cannot call any other
-                evaluation function directly.
         """
         if self.time_left() < self.TIMER_THRESHOLD:
             raise Timeout()
 
-        # TODO: finish this function!
-        raise NotImplementedError
+        if depth == 0 or len(game.get_legal_moves()) == 0:
+            return self.score(game, game.active_player), game.get_player_location(game.active_player)
+
+        return_score = float("-inf") if maximizing_player else float("inf")
+        return_tuple = (-1, -1)
+        for legal_move in game.get_legal_moves():
+            new_game = game.forecast_move(legal_move)
+            tmp_score, tmp_tuple = self.alphabeta(new_game, depth - 1, alpha, beta, not maximizing_player)
+            if (maximizing_player and tmp_score > return_score) or (not maximizing_player and tmp_score < return_score):
+                return_score = tmp_score
+                return_tuple = legal_move
+
+            if maximizing_player:
+                alpha = max(alpha, return_score)
+            else:
+                beta = min(beta, return_score)
+
+            if beta <= alpha:
+                break
+
+        return return_score, return_tuple
